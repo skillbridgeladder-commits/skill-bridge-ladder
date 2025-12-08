@@ -9,6 +9,7 @@ export default function FreelancerDashboard() {
   const [stats, setStats] = useState({ connects: 20, earnings: 0, bids: 0 })
   const [jobs, setJobs] = useState<any[]>([])
   const [proposals, setProposals] = useState<any[]>([])
+  const [contracts, setContracts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
@@ -21,7 +22,7 @@ export default function FreelancerDashboard() {
         return
       }
 
-      // 2. SAFETY CHECK: Did they finish onboarding?
+      // 2. Safety Check
       const { data: profile } = await supabase
         .from('users')
         .select('onboarding_complete')
@@ -29,13 +30,13 @@ export default function FreelancerDashboard() {
         .single()
 
       if (!profile?.onboarding_complete) {
-        router.replace('/onboarding') // Kick back to setup
+        router.replace('/onboarding')
         return
       }
 
       setUser(user)
 
-      // 3. Load Jobs (Feed)
+      // 3. Load Jobs
       const { data: jobsData } = await supabase
         .from('jobs')
         .select('*')
@@ -44,7 +45,7 @@ export default function FreelancerDashboard() {
         .limit(5)
       if (jobsData) setJobs(jobsData)
 
-      // 4. Load My Proposals (To count bids and show list)
+      // 4. Load My Proposals
       // @ts-ignore
       const { data: proposalData } = await supabase
         .from('proposals')
@@ -56,6 +57,16 @@ export default function FreelancerDashboard() {
         setStats(prev => ({ ...prev, bids: proposalData.length }))
       }
 
+      // 5. Load Active Contracts (NEW)
+      // @ts-ignore
+      const { data: contractData } = await supabase
+        .from('contracts')
+        .select('*, jobs(title)')
+        .eq('freelancer_id', user.id)
+        .eq('status', 'active')
+      
+      if (contractData) setContracts(contractData)
+
       setLoading(false)
     }
     init()
@@ -66,10 +77,21 @@ export default function FreelancerDashboard() {
     router.push('/login')
   }
 
+  // Handle "Submit Work" Logic
+  const handleSubmitWork = async (contractId: number) => {
+    const workLink = prompt("Paste the link to your work (Google Drive, GitHub, etc):");
+    if (!workLink) return;
+    
+    // We send this as a "Message" in the system (simplest way for MVP)
+    // Note: This requires finding the proposal ID first, which we can simplify later.
+    // For now, let's just alert the user.
+    alert(`Work Submitted! Link: ${workLink}\n\n(In a real app, this would notify the client via email/chat).`);
+  }
+
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading Workspace...</div>
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-24 px-4 md:px-8 pb-20 font-sans">
+    <div className="min-h-screen bg-slate-50 pt-24 px-4 md:px-8 pb-20 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto">
         
         {/* HEADER */}
@@ -93,18 +115,58 @@ export default function FreelancerDashboard() {
         {/* STATS CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Connects</span>
-            <span className="text-4xl font-extrabold text-blue-600 mt-2">{stats.connects}</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Contracts</span>
+            <span className="text-4xl font-extrabold text-blue-600 mt-2">{contracts.length}</span>
           </div>
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Bids</span>
             <span className="text-4xl font-extrabold text-purple-600 mt-2">{stats.bids}</span>
           </div>
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Earnings</span>
-            <span className="text-4xl font-extrabold text-emerald-600 mt-2">${stats.earnings}</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Connects</span>
+            <span className="text-4xl font-extrabold text-emerald-600 mt-2">{stats.connects}</span>
           </div>
         </div>
+
+        {/* --- ACTIVE CONTRACTS SECTION --- */}
+        {contracts.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-xl font-bold text-slate-900 mb-6">Active Contracts</h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              {contracts.map((contract) => (
+                <div key={contract.id} className="bg-slate-900 text-white p-8 rounded-[2rem] shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                  
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-white mb-1">{contract.jobs?.title}</h3>
+                        <p className="text-slate-400 text-xs">Started: {new Date(contract.start_date).toLocaleDateString()}</p>
+                      </div>
+                      <span className="bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full animate-pulse">
+                        ACTIVE
+                      </span>
+                    </div>
+
+                    <div className="text-3xl font-extrabold mb-6">${contract.budget}</div>
+
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={() => handleSubmitWork(contract.id)}
+                        className="flex-1 bg-white text-slate-900 py-3 rounded-xl font-bold hover:bg-slate-200 transition"
+                      >
+                        Submit Work
+                      </button>
+                      <button className="flex-1 bg-transparent border border-slate-600 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">
+                        Message Client
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* MAIN CONTENT GRID */}
         <div className="grid lg:grid-cols-3 gap-8">
@@ -135,7 +197,7 @@ export default function FreelancerDashboard() {
             )}
           </div>
 
-          {/* RIGHT: My Proposals (UPDATED WITH LINKS) */}
+          {/* RIGHT: My Proposals */}
           <div>
             <h2 className="text-xl font-bold text-slate-900 mb-6">My Active Bids</h2>
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm min-h-[300px]">

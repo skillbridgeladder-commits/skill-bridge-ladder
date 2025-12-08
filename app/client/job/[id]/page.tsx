@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import ChatBox from '@/app/components/ChatBox' // This imports the Chat System we built
+import ChatBox from '@/app/components/ChatBox'
 
 export default function JobManager() {
   const params = useParams()
   const router = useRouter()
-  // Ensure jobId is a string (handle array case just to be safe)
+  // Handle array or string param safely
   const jobId = Array.isArray(params.id) ? params.id[0] : params.id
 
   const [job, setJob] = useState<any>(null)
@@ -30,7 +30,6 @@ export default function JobManager() {
       setJob(jobData)
 
       // 2. Get Applicants (with their profiles)
-      // Note: We join 'users' table to get the freelancer's name and email
       const { data: proposalData } = await supabase
         .from('proposals')
         .select('*, freelancer:users(*)')
@@ -46,15 +45,49 @@ export default function JobManager() {
   const updateStatus = async (status: string) => {
     if (!selectedProposal) return
 
-    // Update DB
-    await supabase
+    // 1. Update the Proposal Status
+    const { error } = await supabase
       .from('proposals')
       .update({ status })
       .eq('id', selectedProposal.id)
 
-    // Update UI instantly
-    setProposals(proposals.map(p => p.id === selectedProposal.id ? { ...p, status } : p))
-    setSelectedProposal({ ...selectedProposal, status })
+    if (error) {
+      alert('Error updating status: ' + error.message)
+      return
+    }
+
+    // 2. IF HIRING: Create a Contract & Close Job
+    if (status === 'hired') {
+      
+      // A. Create Contract
+      const { error: contractError } = await supabase
+        .from('contracts')
+        .insert({
+          job_id: job.id,
+          client_id: job.client_id,
+          freelancer_id: selectedProposal.freelancer_id,
+          budget: selectedProposal.bid_amount, // Use the agreed bid amount
+          status: 'active'
+        })
+
+      if (contractError) {
+        alert('Error creating contract: ' + contractError.message)
+        return
+      }
+
+      // B. Close the Job (So no one else applies)
+      await supabase
+        .from('jobs')
+        .update({ status: 'closed' })
+        .eq('id', job.id)
+      
+      alert(`🎉 Success! You have hired ${selectedProposal.freelancer.full_name}. Contract Started.`)
+      router.push('/client/dashboard') // Go back to dashboard
+    } else {
+      // Just update UI for other stages (Interview, Viewed, etc.)
+      setProposals(proposals.map(p => p.id === selectedProposal.id ? { ...p, status } : p))
+      setSelectedProposal({ ...selectedProposal, status })
+    }
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading Applicants...</div>
@@ -71,6 +104,9 @@ export default function JobManager() {
             <div className="flex gap-4 mt-2 text-sm font-medium text-slate-500">
               <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full">{job.budget_type}</span>
               <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full">${job.budget}</span>
+              <span className={`px-3 py-1 rounded-full ${job.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {job.status.toUpperCase()}
+              </span>
             </div>
           </div>
           <div className="text-right">
@@ -123,10 +159,7 @@ export default function JobManager() {
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-2xl overflow-hidden relative">
                       {selectedProposal.freelancer?.avatar_url ? (
-                        <div className="w-full h-full relative">
-                           {/* Using standard img tag for ease if domain config is tricky, or use Next Image */}
-                           <img src={selectedProposal.freelancer.avatar_url} alt="Ava" className="object-cover w-full h-full" />
-                        </div>
+                        <img src={selectedProposal.freelancer.avatar_url} alt="Ava" className="object-cover w-full h-full" />
                       ) : "👤"}
                     </div>
                     <div>
@@ -146,6 +179,9 @@ export default function JobManager() {
                     {selectedProposal.status === 'interview' && (
                       <button onClick={() => updateStatus('hired')} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 shadow-lg shadow-green-200">HIRE NOW</button>
                     )}
+                    {selectedProposal.status === 'hired' && (
+                      <span className="px-4 py-2 bg-green-100 text-green-800 rounded-lg text-xs font-bold border border-green-200">HIRED ✅</span>
+                    )}
                   </div>
                 </div>
 
@@ -163,7 +199,6 @@ export default function JobManager() {
                   {/* CHAT SYSTEM */}
                   <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Workroom Chat</h3>
-                    {/* Injecting the ChatBox Component we built earlier */}
                     <ChatBox 
                       proposalId={selectedProposal.id} 
                       currentUserId={job.client_id} 
