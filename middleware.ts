@@ -2,8 +2,11 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // 1. Create an unmodified response
   let response = NextResponse.next({
-    request: { headers: request.headers },
+    request: {
+      headers: request.headers,
+    },
   })
 
   const supabase = createServerClient(
@@ -11,36 +14,55 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) { return request.cookies.get(name)?.value },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options })
-          response = NextResponse.next({ request: { headers: request.headers } })
-          response.cookies.set({ name, value, ...options })
+        getAll() {
+          return request.cookies.getAll()
         },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options })
-          response = NextResponse.next({ request: { headers: request.headers } })
-          response.cookies.set({ name, value: '', ...options })
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            request.cookies.set(name, value)
+          )
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          )
         },
       },
     }
   )
 
+  // 2. Refresh the session
   const { data: { user } } = await supabase.auth.getUser()
 
-  // 1. PROTECT DASHBOARDS: If not logged in -> Login
-  if (!user && (request.nextUrl.pathname.startsWith('/client') || request.nextUrl.pathname.startsWith('/freelancer') || request.nextUrl.pathname.startsWith('/onboarding'))) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
+  // 3. Define Protected Routes
+  const isProtectedPath = 
+    request.nextUrl.pathname.startsWith('/client') || 
+    request.nextUrl.pathname.startsWith('/freelancer') || 
+    request.nextUrl.pathname.startsWith('/onboarding')
 
-  // 2. REDIRECT FROM LOGIN: If logged in -> Go to Onboarding (Safety Net)
-  if (user && (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup')) {
-    return NextResponse.redirect(new URL('/onboarding', request.url))
+  // 4. Security Check: If trying to access protected area without login -> Go to Login
+  if (isProtectedPath && !user) {
+    const loginUrl = new URL('/login', request.url)
+    // Optional: Add a query param so we know where to send them back after login
+    loginUrl.searchParams.set('redirectedFrom', request.nextUrl.pathname)
+    return NextResponse.redirect(loginUrl)
   }
 
   return response
 }
 
 export const config = {
-  matcher: ['/client/:path*', '/freelancer/:path*', '/onboarding', '/login', '/signup'],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - /auth (auth callbacks)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|auth).*)',
+  ],
 }

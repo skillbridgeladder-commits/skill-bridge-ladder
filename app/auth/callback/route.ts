@@ -1,21 +1,16 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { type NextRequest, NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  // if "next" is in param, use it as the redirect URL
+  
+  // Default to /onboarding if no specific destination is set
   const next = searchParams.get('next') ?? '/onboarding'
 
   if (code) {
-    const cookieStore = {
-      getAll: () => request.cookies.getAll(),
-      setAll: (cookies: any) => {
-        cookies.forEach((cookie: any) => {
-          request.cookies.set(cookie)
-        })
-      },
-    }
+    const cookieStore = await cookies() // Await is required in Next.js 15+
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,18 +18,23 @@ export async function GET(request: NextRequest) {
       {
         cookies: {
           getAll() {
-            return request.cookies.getAll()
+            return cookieStore.getAll()
           },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              request.cookies.set(name, value)
-            )
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              )
+            } catch {
+              // This catch block handles cases where setAll is called 
+              // from a context where cookies cannot be set (safe to ignore)
+            }
           },
         },
       }
     )
     
-    // Exchange the code for a session
+    // Securely exchange the Google Code for a User Session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error) {
@@ -42,6 +42,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // If something went wrong, return to login with error
-  return NextResponse.redirect(`${origin}/login?error=Authentication Error`)
+  // If login failed, send them back to login page
+  return NextResponse.redirect(`${origin}/login?error=AuthCodeError`)
 }

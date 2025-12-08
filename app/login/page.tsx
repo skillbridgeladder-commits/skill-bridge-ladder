@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/app/lib/supabaseClient'
 import Link from 'next/link'
@@ -10,13 +10,29 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [isRedirecting, setIsRedirecting] = useState(true) // For "Already Logged In" check
   const router = useRouter()
 
+  // 1. CHECK IF ALREADY LOGGED IN
+  useEffect(() => {
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        // User is already logged in
+        alert("You are already logged in! Redirecting to your workspace...")
+        router.replace('/onboarding') // Use replace to prevent "Back" button loop
+      } else {
+        setIsRedirecting(false) // Allow them to see the login form
+      }
+    }
+    checkSession()
+  }, [router])
+
+  // 2. GOOGLE LOGIN
   const handleGoogleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        // Force redirect to onboarding after Google Auth
         redirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
@@ -24,18 +40,29 @@ export default function Login() {
     if (error) setErrorMsg(error.message)
   }
 
+  // 3. EMAIL LOGIN
   const handleLogin = async (e: any) => {
     e.preventDefault()
     setLoading(true)
     setErrorMsg('')
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) throw error
-      
-      // SUCCESS: Send everyone to onboarding. 
-      // The onboarding page handles the logic (if profile is done -> send to dashboard)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) {
+        // Custom Error Handling for "No Account"
+        if (error.message.includes("Invalid login credentials")) {
+          throw new Error("Incorrect email or password. If you are new, please Sign Up first.")
+        }
+        throw error
+      }
+
+      // Success!
       router.push('/onboarding')
-      
+
     } catch (error: any) {
       setErrorMsg(error.message)
     } finally {
@@ -43,19 +70,33 @@ export default function Login() {
     }
   }
 
+  // Show a loading spinner while we check if they are already logged in
+  if (isRedirecting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-slate-500 font-bold animate-pulse">Checking session...</div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden font-sans">
+      
+      {/* Background decoration */}
       <div className="absolute inset-0 bg-slate-50 z-[-1]"></div>
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:40px_40px] z-[-1]"></div>
-      
+
       <div className="w-full max-w-md bg-white/80 backdrop-blur-xl p-10 rounded-[2rem] shadow-2xl border border-white/50">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-extrabold text-slate-900">Welcome Back</h1>
-          <p className="text-slate-500 mt-2">Enter your credentials to access your workspace.</p>
+          <p className="text-slate-500 mt-2">Log in to continue to SkillBridge.</p>
         </div>
 
-        {/* GOOGLE BUTTON */}
-        <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 p-4 rounded-xl font-bold hover:bg-slate-50 transition-all mb-6 shadow-sm">
+        {/* Google Button */}
+        <button 
+          onClick={handleGoogleLogin} 
+          className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 p-4 rounded-xl font-bold hover:bg-slate-50 transition-all mb-6 shadow-sm"
+        >
           <FcGoogle className="text-2xl" />
           Continue with Google
         </button>
@@ -68,20 +109,41 @@ export default function Login() {
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Email</label>
-            <input type="email" required className="w-full p-4 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input 
+              type="email" 
+              required 
+              className="w-full p-4 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+            />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Password</label>
-            <input type="password" required className="w-full p-4 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input 
+              type="password" 
+              required 
+              className="w-full p-4 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+            />
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold hover:scale-[1.02] transition-all shadow-lg">
+          <button 
+            type="submit" 
+            disabled={loading} 
+            className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold hover:scale-[1.02] transition-all shadow-lg disabled:opacity-50"
+          >
             {loading ? 'Logging in...' : 'Sign In'}
           </button>
-          {errorMsg && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg text-center font-medium">{errorMsg}</div>}
+
+          {errorMsg && (
+            <div className="p-4 bg-red-50 text-red-600 text-sm rounded-xl text-center font-medium border border-red-100">
+              {errorMsg}
+            </div>
+          )}
         </form>
 
         <p className="text-center mt-8 text-slate-500 text-sm">
-          Don't have an account? <Link href="/signup" className="text-blue-600 font-bold hover:underline">Create one</Link>
+          Don't have an account? <Link href="/signup" className="text-blue-600 font-bold hover:underline">Sign Up First</Link>
         </p>
       </div>
     </div>
