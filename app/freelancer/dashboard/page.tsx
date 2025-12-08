@@ -14,12 +14,28 @@ export default function FreelancerDashboard() {
 
   useEffect(() => {
     async function init() {
-      // 1. Check Auth
+      // 1. Auth Check
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return router.push('/login')
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // 2. SAFETY CHECK: Did they finish onboarding?
+      const { data: profile } = await supabase
+        .from('users')
+        .select('onboarding_complete')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile?.onboarding_complete) {
+        router.replace('/onboarding') // Kick back to setup
+        return
+      }
+
       setUser(user)
 
-      // 2. Load Jobs (Feed)
+      // 3. Load Jobs (Feed)
       const { data: jobsData } = await supabase
         .from('jobs')
         .select('*')
@@ -28,7 +44,7 @@ export default function FreelancerDashboard() {
         .limit(5)
       if (jobsData) setJobs(jobsData)
 
-      // 3. Load My Proposals (To count bids)
+      // 4. Load My Proposals (To count bids)
       // @ts-ignore
       const { data: proposalData } = await supabase
         .from('proposals')

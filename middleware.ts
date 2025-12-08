@@ -28,23 +28,19 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // 1. IF LOGGED IN: Block them from visiting Login/Signup
-  if (user && (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup')) {
-    return NextResponse.redirect(new URL('/onboarding', request.url))
+  // 1. PROTECT DASHBOARDS: If not logged in -> Login
+  if (!user && (request.nextUrl.pathname.startsWith('/client') || request.nextUrl.pathname.startsWith('/freelancer') || request.nextUrl.pathname.startsWith('/onboarding'))) {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // 2. IF NOT LOGGED IN: Block them from visiting Protected Pages
-  if (!user && (
-    request.nextUrl.pathname.startsWith('/client') || 
-    request.nextUrl.pathname.startsWith('/freelancer') ||
-    request.nextUrl.pathname.startsWith('/onboarding')
-  )) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  // 2. REDIRECT FROM LOGIN: If logged in -> Go to Onboarding (Safety Net)
+  if (user && (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup')) {
+    return NextResponse.redirect(new URL('/onboarding', request.url))
   }
 
   return response
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/client/:path*', '/freelancer/:path*', '/onboarding', '/login', '/signup'],
 }

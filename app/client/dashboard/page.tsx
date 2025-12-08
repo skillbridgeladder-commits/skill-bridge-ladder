@@ -14,10 +14,27 @@ export default function ClientDashboard() {
     async function init() {
       // 1. Auth Check
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return router.push('/login')
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // 2. SAFETY CHECK: Did they finish onboarding?
+      const { data: profile } = await supabase
+        .from('users')
+        .select('onboarding_complete')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile?.onboarding_complete) {
+        router.replace('/onboarding') // Kick back to setup
+        return
+      }
+
+      // If safe, save user and load data
       setUser(user)
 
-      // 2. Fetch My Jobs + Count Proposals
+      // 3. Fetch My Jobs + Count Proposals
       // @ts-ignore
       const { data } = await supabase
         .from('jobs')
@@ -100,7 +117,8 @@ export default function ClientDashboard() {
 
                 <div className="flex items-center gap-8">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-slate-900">{job.proposals ? job.proposals[0].count : 0}</div>
+                    {/* Accessing the count safely */}
+                    <div className="text-2xl font-bold text-slate-900">{job.proposals?.[0]?.count || 0}</div>
                     <div className="text-xs font-bold text-slate-400 uppercase">Applicants</div>
                   </div>
                   <div className="text-center">
