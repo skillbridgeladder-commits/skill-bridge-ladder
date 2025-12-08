@@ -44,7 +44,7 @@ export default function Onboarding() {
         .single()
 
       if (profile?.onboarding_complete) {
-        // STOP LOOP: If done, force them to dashboard
+        // If done, force them to dashboard
         if (profile.role === 'client') router.replace('/client/dashboard')
         else router.replace('/freelancer/dashboard')
       } else {
@@ -77,6 +77,8 @@ export default function Onboarding() {
       if (avatarFile) {
         const fileExt = avatarFile.name.split('.').pop()
         const fileName = `${user.id}-${Math.random()}.${fileExt}`
+        
+        // Upload to 'avatars' bucket
         const { error: uploadError } = await supabase.storage
           .from('avatars')
           .upload(fileName, avatarFile)
@@ -89,14 +91,15 @@ export default function Onboarding() {
           .getPublicUrl(fileName)
         
         avatarUrl = publicUrlData.publicUrl
-      } else {
-        throw new Error("Profile photo is required.")
       }
 
       // B. Prepare Data
-      const skillsArray = skillsInput.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      const skillsArray = skillsInput ? skillsInput.split(',').map(s => s.trim()).filter(s => s.length > 0) : []
 
-      const updates = {
+      const profileData = {
+        id: user.id, // CRITICAL: Required for upsert
+        email: user.email, // Ensure email is saved
+        full_name: user.user_metadata.full_name || 'New User',
         role,
         bio,
         avatar_url: avatarUrl,
@@ -108,17 +111,17 @@ export default function Onboarding() {
         company_size: role === 'client' ? companySize : null,
         // Freelancer Fields
         job_title: role === 'freelancer' ? jobTitle : null,
-        hourly_rate: role === 'freelancer' ? parseFloat(hourlyRate) : null,
+        hourly_rate: role === 'freelancer' && hourlyRate ? parseFloat(hourlyRate) : null,
         experience_level: role === 'freelancer' ? experience : null,
         portfolio_url: role === 'freelancer' ? portfolio : null,
         skills: role === 'freelancer' ? skillsArray : null,
+        updated_at: new Date().toISOString(),
       }
 
-      // C. Save to DB
+      // C. Save to DB (Using UPSERT to fix "Row violations")
       const { error: dbError } = await supabase
         .from('users')
-        .update(updates)
-        .eq('id', user.id)
+        .upsert(profileData)
 
       if (dbError) throw dbError
 
@@ -133,11 +136,17 @@ export default function Onboarding() {
     }
   }
 
+  // Emergency Logout
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
   if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-slate-500 bg-slate-50">Checking Profile...</div>
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans text-slate-900">
-      <div className="max-w-3xl w-full bg-white p-10 rounded-[2rem] shadow-xl border border-slate-100">
+      <div className="max-w-3xl w-full bg-white p-10 rounded-[2rem] shadow-xl border border-slate-100 relative z-10">
         
         {/* PROGRESS BAR */}
         <div className="flex gap-2 mb-8">
@@ -245,7 +254,7 @@ export default function Onboarding() {
         {step === 3 && (
           <div className="text-center">
             <h2 className="text-2xl font-bold mb-6">Upload your {role === 'client' ? 'Company Logo' : 'Profile Photo'}</h2>
-            <p className="text-slate-500 mb-8 text-sm">Please upload a professional image. This is required.</p>
+            <p className="text-slate-500 mb-8 text-sm">Please upload a professional image.</p>
 
             <div className="flex flex-col items-center gap-6">
               <div className="w-32 h-32 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative">
@@ -266,7 +275,7 @@ export default function Onboarding() {
               <button onClick={() => setStep(2)} className="text-slate-500 font-bold">Back</button>
               <button 
                 onClick={handleSubmit} 
-                disabled={saving || !avatarFile}
+                disabled={saving}
                 className="bg-green-600 text-white px-10 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 transition shadow-lg"
               >
                 {saving ? 'Creating Profile...' : 'Finish & Go to Dashboard'}
@@ -274,6 +283,12 @@ export default function Onboarding() {
             </div>
           </div>
         )}
+
+        <div className="mt-6 text-center">
+          <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-600 underline">
+            Log out
+          </button>
+        </div>
 
       </div>
     </div>
