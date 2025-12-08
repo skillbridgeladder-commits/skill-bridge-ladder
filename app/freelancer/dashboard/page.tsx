@@ -6,7 +6,7 @@ import Link from 'next/link'
 
 export default function FreelancerDashboard() {
   const [user, setUser] = useState<any>(null)
-  const [stats, setStats] = useState({ connects: 20, earnings: 0, bids: 0 })
+  const [stats, setStats] = useState({ connects: 0, earnings: 0, bids: 0 })
   const [jobs, setJobs] = useState<any[]>([])
   const [proposals, setProposals] = useState<any[]>([])
   const [contracts, setContracts] = useState<any[]>([])
@@ -22,10 +22,10 @@ export default function FreelancerDashboard() {
         return
       }
 
-      // 2. Safety Check
+      // 2. Safety Check (Onboarding)
       const { data: profile } = await supabase
         .from('users')
-        .select('onboarding_complete')
+        .select('onboarding_complete, credits')
         .eq('id', user.id)
         .single()
 
@@ -36,16 +36,17 @@ export default function FreelancerDashboard() {
 
       setUser(user)
 
-      // 3. Load Jobs
+      // 3. Load Jobs (Feed)
       const { data: jobsData } = await supabase
         .from('jobs')
         .select('*')
         .eq('status', 'open')
         .order('created_at', { ascending: false })
         .limit(5)
+      
       if (jobsData) setJobs(jobsData)
 
-      // 4. Load My Proposals
+      // 4. Load My Proposals & Stats
       // @ts-ignore
       const { data: proposalData } = await supabase
         .from('proposals')
@@ -54,18 +55,32 @@ export default function FreelancerDashboard() {
       
       if (proposalData) {
         setProposals(proposalData)
-        setStats(prev => ({ ...prev, bids: proposalData.length }))
       }
 
-      // 5. Load Active Contracts (NEW)
+      // 5. Load Contracts (Active & Completed)
       // @ts-ignore
       const { data: contractData } = await supabase
         .from('contracts')
         .select('*, jobs(title)')
         .eq('freelancer_id', user.id)
-        .eq('status', 'active')
       
-      if (contractData) setContracts(contractData)
+      if (contractData) {
+        // Filter for Active display
+        const activeContracts = contractData.filter((c: any) => c.status === 'active')
+        setContracts(activeContracts)
+
+        // Calculate Total Earnings (Sum of completed contracts)
+        const totalEarnings = contractData
+          .filter((c: any) => c.status === 'completed')
+          .reduce((sum: number, current: any) => sum + (current.budget || 0), 0)
+
+        // Update Stats
+        setStats({
+          connects: profile.credits || 0,
+          bids: proposalData?.length || 0,
+          earnings: totalEarnings
+        })
+      }
 
       setLoading(false)
     }
@@ -77,15 +92,60 @@ export default function FreelancerDashboard() {
     router.push('/login')
   }
 
-  // Handle "Submit Work" Logic
-  const handleSubmitWork = async (contractId: number) => {
-    const workLink = prompt("Paste the link to your work (Google Drive, GitHub, etc):");
-    if (!workLink) return;
+  // FUNCTION: Submit Work (Sends Link to Chat)
+  const handleSubmitWork = async (contract: any) => {
+    const workLink = prompt("Please paste the link to your work (Google Drive, GitHub, Figma):");
     
-    // We send this as a "Message" in the system (simplest way for MVP)
-    // Note: This requires finding the proposal ID first, which we can simplify later.
-    // For now, let's just alert the user.
-    alert(`Work Submitted! Link: ${workLink}\n\n(In a real app, this would notify the client via email/chat).`);
+    if (!workLink) return; // User cancelled
+
+    if (!workLink.startsWith('http')) {
+      alert("Please enter a valid URL starting with http:// or https://");
+      return;
+    }
+
+    try {
+      // Find the proposal ID to link the message
+      const { data: proposal } = await supabase
+          .from('proposals')
+          .select('id')
+          .eq('job_id', contract.job_id)
+          .eq('freelancer_id', user.id)
+          .single()
+
+      if (proposal) {
+          // Send message
+          const { error } = await supabase.from('messages').insert({
+              proposal_id: proposal.id,
+              sender_id: user.id,
+              content: `✅ WORK SUBMITTED:\n\n🔗 ${workLink}`,
+              is_flagged: false
+          })
+
+          if (error) throw error
+          alert("Success! Link sent to client chat.")
+      } else {
+        alert("Could not find linked proposal to send message.")
+      }
+
+    } catch (error: any) {
+      alert("Error: " + error.message)
+    }
+  }
+
+  // FUNCTION: Go to Chat (Finds the right proposal)
+  const handleMessageClient = async (contract: any) => {
+    const { data: proposal } = await supabase
+        .from('proposals')
+        .select('id')
+        .eq('job_id', contract.job_id)
+        .eq('freelancer_id', user.id)
+        .single()
+    
+    if (proposal) {
+      router.push(`/freelancer/proposal/${proposal.id}`)
+    } else {
+      alert("Chat room not found.")
+    }
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading Workspace...</div>
@@ -115,16 +175,16 @@ export default function FreelancerDashboard() {
         {/* STATS CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Contracts</span>
-            <span className="text-4xl font-extrabold text-blue-600 mt-2">{contracts.length}</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Connects</span>
+            <span className="text-4xl font-extrabold text-blue-600 mt-2">{stats.connects}</span>
           </div>
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Bids</span>
             <span className="text-4xl font-extrabold text-purple-600 mt-2">{stats.bids}</span>
           </div>
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Connects</span>
-            <span className="text-4xl font-extrabold text-emerald-600 mt-2">{stats.connects}</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Earnings</span>
+            <span className="text-4xl font-extrabold text-emerald-600 mt-2">${stats.earnings}</span>
           </div>
         </div>
 
@@ -152,12 +212,15 @@ export default function FreelancerDashboard() {
 
                     <div className="flex gap-4">
                       <button 
-                        onClick={() => handleSubmitWork(contract.id)}
-                        className="flex-1 bg-white text-slate-900 py-3 rounded-xl font-bold hover:bg-slate-200 transition"
+                        onClick={() => handleSubmitWork(contract)}
+                        className="flex-1 bg-white text-slate-900 py-3 rounded-xl font-bold hover:bg-slate-200 transition shadow-lg"
                       >
                         Submit Work
                       </button>
-                      <button className="flex-1 bg-transparent border border-slate-600 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">
+                      <button 
+                        onClick={() => handleMessageClient(contract)}
+                        className="flex-1 bg-transparent border border-slate-600 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition"
+                      >
                         Message Client
                       </button>
                     </div>
@@ -175,7 +238,7 @@ export default function FreelancerDashboard() {
           <div className="lg:col-span-2 space-y-6">
             <h2 className="text-xl font-bold text-slate-900">Recommended Jobs</h2>
             {jobs.length === 0 ? (
-              <div className="p-10 bg-white rounded-3xl border border-dashed border-slate-300 text-center text-slate-400">No jobs found. Check back later!</div>
+              <div className="p-10 bg-white rounded-3xl border border-dashed border-slate-300 text-center text-slate-400">No jobs posted yet.</div>
             ) : (
               jobs.map(job => (
                 <div key={job.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
@@ -188,7 +251,7 @@ export default function FreelancerDashboard() {
                         <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full">${job.budget}</span>
                       </div>
                     </div>
-                    <Link href={`/freelancer/apply/${job.id}`} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700">
+                    <Link href={`/freelancer/apply/${job.id}`} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-md">
                       Apply
                     </Link>
                   </div>
