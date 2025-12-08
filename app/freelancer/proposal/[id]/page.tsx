@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import ChatBox from '@/app/components/ChatBox'
 
@@ -36,7 +36,7 @@ export default function ProposalDetails() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading Workroom...</div>
 
-  if (!proposal) return <div>Proposal not found</div>
+  if (!proposal) return <div className="min-h-screen flex items-center justify-center">Proposal not found</div>
 
   return (
     <div className="min-h-screen bg-slate-50 pt-28 px-6 pb-10 font-sans">
