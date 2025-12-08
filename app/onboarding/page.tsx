@@ -17,26 +17,33 @@ export default function Onboarding() {
 
   useEffect(() => {
     async function checkUser() {
-      // 1. Get Logged In User
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      // 1. Check Session (Faster than getUser)
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
         router.push('/login')
         return
       }
 
-      // 2. Check if they already finished onboarding
-      const { data: profile } = await supabase
+      // 2. Fetch User Profile to check Role & Status
+      const { data: profile, error } = await supabase
         .from('users')
         .select('role, onboarding_complete')
-        .eq('id', user.id)
+        .eq('id', session.user.id)
         .single()
 
+      if (error) {
+        console.error('Error fetching profile:', error)
+        return
+      }
+
+      // 3. Logic: Where should they go?
       if (profile?.onboarding_complete) {
-        // If done, send them to dashboard immediately
-        if (profile.role === 'client') router.push('/client/dashboard')
-        else router.push('/freelancer/dashboard')
+        // If they already finished this step, kick them to the dashboard
+        if (profile.role === 'client') router.replace('/client/dashboard')
+        else router.replace('/freelancer/dashboard')
       } else {
-        // If not done, show this form
+        // If not finished, show the form
         setRole(profile?.role)
         setLoading(false)
       }
@@ -60,7 +67,7 @@ export default function Onboarding() {
       company_name: role === 'client' ? companyName : null,
       portfolio_url: role === 'freelancer' ? website : null,
       skills: role === 'freelancer' ? skillsArray : null,
-      onboarding_complete: true, // IMPORTANT: Marks them as "Done"
+      onboarding_complete: true, // IMPORTANT: This stops them from seeing this page again
     }
 
     // Save to Database
@@ -79,11 +86,21 @@ export default function Onboarding() {
     }
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-500 font-bold">Loading Profile Setup...</div>
+  // Emergency Logout (In case they get stuck)
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-500 font-bold bg-slate-50">Loading Profile Setup...</div>
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
-      <div className="max-w-2xl w-full bg-white p-10 rounded-[2rem] shadow-xl border border-slate-100">
+      
+      {/* Background */}
+      <div className="fixed inset-0 z-0 pointer-events-none bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+
+      <div className="max-w-2xl w-full bg-white/90 backdrop-blur-xl p-10 rounded-[2rem] shadow-2xl border border-white/50 relative z-10">
         
         <div className="text-center mb-10">
           <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Complete Your Profile</h1>
@@ -140,6 +157,14 @@ export default function Onboarding() {
           </button>
 
         </form>
+
+        {/* Safety Escape Hatch */}
+        <div className="mt-6 text-center">
+          <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-600 underline">
+            Log out (Use different account)
+          </button>
+        </div>
+
       </div>
     </div>
   )
