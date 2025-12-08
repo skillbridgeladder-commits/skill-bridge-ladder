@@ -44,7 +44,7 @@ export default function FreelancerDashboard() {
         .limit(5)
       if (jobsData) setJobs(jobsData)
 
-      // 4. Load My Proposals (To count bids)
+      // 4. Load My Proposals (To count bids and show list)
       // @ts-ignore
       const { data: proposalData } = await supabase
         .from('proposals')
@@ -135,7 +135,7 @@ export default function FreelancerDashboard() {
             )}
           </div>
 
-          {/* RIGHT: My Proposals */}
+          {/* RIGHT: My Proposals (UPDATED WITH LINKS) */}
           <div>
             <h2 className="text-xl font-bold text-slate-900 mb-6">My Active Bids</h2>
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm min-h-[300px]">
@@ -144,13 +144,22 @@ export default function FreelancerDashboard() {
               ) : (
                 <div className="space-y-4">
                   {proposals.map((p) => (
-                    <div key={p.id} className="pb-4 border-b border-slate-50 last:border-0">
-                      <div className="font-bold text-slate-800 text-sm">{p.jobs?.title}</div>
-                      <div className="flex justify-between mt-1">
+                    <Link 
+                      key={p.id} 
+                      href={`/freelancer/proposal/${p.id}`} 
+                      className="block border-b border-slate-50 pb-4 last:border-0 hover:bg-slate-50 transition p-2 rounded-lg"
+                    >
+                      <div className="font-bold text-slate-800 text-sm mb-1">{p.jobs?.title}</div>
+                      <div className="flex justify-between items-center">
                         <span className="text-xs text-slate-400">Bid: ${p.bid_amount}</span>
-                        <span className="text-xs font-bold text-blue-600 uppercase">{p.status}</span>
+                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                          p.status === 'applied' ? 'bg-blue-50 text-blue-600' : 
+                          p.status === 'hired' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {p.status}
+                        </span>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}
