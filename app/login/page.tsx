@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/app/lib/supabaseClient'
 import Link from 'next/link'
-import { FcGoogle } from 'react-icons/fc' // Ensure you installed react-icons
+import { FcGoogle } from 'react-icons/fc'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -16,7 +16,8 @@ export default function Login() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        // Force redirect to onboarding after Google Auth
+        redirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     })
@@ -28,14 +29,13 @@ export default function Login() {
     setLoading(true)
     setErrorMsg('')
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
       
-      // Check role
-      const { data: userProfile } = await supabase.from('users').select('role').eq('id', data.user.id).single()
-      if (userProfile?.role === 'client') router.push('/client/dashboard')
-      else if (userProfile?.role === 'freelancer') router.push('/freelancer/dashboard')
-      else router.push('/')
+      // SUCCESS: Send everyone to onboarding. 
+      // The onboarding page handles the logic (if profile is done -> send to dashboard)
+      router.push('/onboarding')
+      
     } catch (error: any) {
       setErrorMsg(error.message)
     } finally {

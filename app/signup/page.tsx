@@ -16,8 +16,8 @@ export default function Signup() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        // We pass data here so Supabase knows their role if it's a new user
+        // Force redirect to onboarding after Google Signup
+        redirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     })
@@ -32,7 +32,11 @@ export default function Signup() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { role: role, full_name: fullName } },
+        options: { 
+          data: { role: role, full_name: fullName },
+          // IMPORTANT: When they click the email link, send them to onboarding
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`
+        },
       })
       if (error) throw error
       setMessage('Success! Check your email to confirm.')
