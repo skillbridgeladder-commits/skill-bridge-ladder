@@ -24,7 +24,6 @@ export default function Onboarding() {
         return
       }
 
-      // Check if already done
       const { data: profile } = await supabase
         .from('users')
         .select('role, onboarding_complete')
@@ -32,11 +31,11 @@ export default function Onboarding() {
         .single()
 
       if (profile?.onboarding_complete) {
-        // Already done? Go to dashboard
+        // If done, go to dashboard
         if (profile.role === 'client') router.replace('/client/dashboard')
         else router.replace('/freelancer/dashboard')
       } else {
-        // Not done? Stay here. 
+        // Not done yet
         setLoading(false)
       }
     }
@@ -45,7 +44,7 @@ export default function Onboarding() {
 
   const handleRoleSelect = (selectedRole: string) => {
     setRole(selectedRole)
-    setStep(2) // Move to next step
+    setStep(2) // Go to next step
   }
 
   const handleSubmit = async (e: any) => {
@@ -58,13 +57,13 @@ export default function Onboarding() {
     const skillsArray = skillsInput.split(',').map(s => s.trim()).filter(s => s.length > 0)
 
     const updates = {
-      role: role, // FORCE UPDATE THE ROLE
+      role: role, // CRITICAL: Save the role here
       bio,
       website: website || null,
       company_name: role === 'client' ? companyName : null,
       portfolio_url: role === 'freelancer' ? website : null,
       skills: role === 'freelancer' ? skillsArray : null,
-      onboarding_complete: true,
+      onboarding_complete: true, // Mark as done
     }
 
     const { error } = await supabase
@@ -76,12 +75,22 @@ export default function Onboarding() {
       alert('Error: ' + error.message)
       setSaving(false)
     } else {
-      if (role === 'client') router.push('/client/dashboard')
-      else router.push('/freelancer/dashboard')
+      // Refresh router to ensure middleware sees the update
+      router.refresh()
+      
+      // Redirect
+      if (role === 'client') router.replace('/client/dashboard')
+      else router.replace('/freelancer/dashboard')
     }
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50">Loading...</div>
+  // Emergency Logout
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-bold">Loading...</div>
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
@@ -128,32 +137,67 @@ export default function Onboarding() {
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
                 {role === 'client' ? 'Company Description' : 'Short Bio'}
               </label>
-              <textarea required rows={3} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+              {/* FIX: Added 'text-slate-900' to make text visible */}
+              <textarea 
+                required 
+                rows={3} 
+                className="w-full p-4 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder:text-slate-400"
                 placeholder={role === 'client' ? "We are a tech startup..." : "I am a Full Stack Developer..."}
-                value={bio} onChange={(e) => setBio(e.target.value)} />
+                value={bio} 
+                onChange={(e) => setBio(e.target.value)} 
+              />
             </div>
 
-            {/* ROLE SPECIFIC INPUTS */}
+            {/* CLIENT FIELDS */}
             {role === 'client' ? (
               <>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Company Name</label>
-                  <input type="text" required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="Acme Corp" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+                  {/* FIX: Added 'text-slate-900' */}
+                  <input 
+                    type="text" 
+                    required 
+                    className="w-full p-4 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder:text-slate-400" 
+                    placeholder="Acme Corp" 
+                    value={companyName} 
+                    onChange={(e) => setCompanyName(e.target.value)} 
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Website</label>
-                  <input type="url" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://acme.com" value={website} onChange={(e) => setWebsite(e.target.value)} />
+                  <input 
+                    type="url" 
+                    className="w-full p-4 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder:text-slate-400" 
+                    placeholder="https://acme.com" 
+                    value={website} 
+                    onChange={(e) => setWebsite(e.target.value)} 
+                  />
                 </div>
               </>
             ) : (
               <>
+                {/* FREELANCER FIELDS */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Skills</label>
-                  <input type="text" required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="React, Design" value={skillsInput} onChange={(e) => setSkillsInput(e.target.value)} />
+                  <input 
+                    type="text" 
+                    required 
+                    className="w-full p-4 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder:text-slate-400" 
+                    placeholder="React, Design" 
+                    value={skillsInput} 
+                    onChange={(e) => setSkillsInput(e.target.value)} 
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Portfolio</label>
-                  <input type="url" required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://mywork.com" value={website} onChange={(e) => setWebsite(e.target.value)} />
+                  <input 
+                    type="url" 
+                    required 
+                    className="w-full p-4 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder:text-slate-400" 
+                    placeholder="https://mywork.com" 
+                    value={website} 
+                    onChange={(e) => setWebsite(e.target.value)} 
+                  />
                 </div>
               </>
             )}
@@ -163,6 +207,12 @@ export default function Onboarding() {
             </button>
           </form>
         )}
+
+        <div className="mt-6 text-center">
+          <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-600 underline">
+            Log out
+          </button>
+        </div>
       </div>
     </div>
   )
