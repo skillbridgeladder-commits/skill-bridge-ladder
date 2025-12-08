@@ -1,21 +1,40 @@
-import { createClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
-import { NextRequest } from 'next/server'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { type NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  
-  // If there is a "next" param, redirect there. Otherwise go to dashboard.
-  const next = searchParams.get('next') ?? '/client/dashboard' // Default landing page
+  // if "next" is in param, use it as the redirect URL
+  const next = searchParams.get('next') ?? '/onboarding'
 
   if (code) {
-    const supabase = createClient(
+    const cookieStore = {
+      getAll: () => request.cookies.getAll(),
+      setAll: (cookies: any) => {
+        cookies.forEach((cookie: any) => {
+          request.cookies.set(cookie)
+        })
+      },
+    }
+
+    const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              request.cookies.set(name, value)
+            )
+          },
+        },
+      }
     )
     
-    // This exchanges the Google Code for a User Session
+    // Exchange the code for a session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error) {
@@ -23,6 +42,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // If error, redirect to login with error message
-  return NextResponse.redirect(`${origin}/login?error=Authentication Failed`)
+  // If something went wrong, return to login with error
+  return NextResponse.redirect(`${origin}/login?error=Authentication Error`)
 }
