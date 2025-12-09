@@ -9,76 +9,81 @@ export default function ClientDashboard() {
   const [myJobs, setMyJobs] = useState<any[]>([])
   const [contracts, setContracts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  
-  // Payment Modal State
-  const [payModalOpen, setPayModalOpen] = useState(false)
-  const [selectedContract, setSelectedContract] = useState<any>(null)
-  const [processing, setProcessing] = useState(false)
-
   const router = useRouter()
 
   useEffect(() => {
     async function init() {
+      // 1. Auth Check
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-      
-      // Onboarding Check
-      const { data: profile } = await supabase.from('users').select('onboarding_complete').eq('id', user.id).single()
-      if (!profile?.onboarding_complete) { router.replace('/onboarding'); return }
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // 2. Profile Check
+      const { data: profile } = await supabase
+        .from('users')
+        .select('onboarding_complete')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile?.onboarding_complete) {
+        router.replace('/onboarding')
+        return
+      }
 
       setUser(user)
 
-      // Fetch Data
-      const { data: jobs } = await supabase.from('jobs').select('*').eq('client_id', user.id).order('created_at', { ascending: false })
-      if (jobs) setMyJobs(jobs)
+      // 3. Fetch Jobs (With Proposal Count)
+      // @ts-ignore
+      const { data: jobsData } = await supabase
+        .from('jobs')
+        .select('*, proposals(count)')
+        .eq('client_id', user.id)
+        .order('created_at', { ascending: false })
+      
+      if (jobsData) setMyJobs(jobsData)
 
-      const { data: activeContracts } = await supabase.from('contracts').select('*, freelancer:users(full_name), job:jobs(title)').eq('client_id', user.id).eq('status', 'active')
-      if (activeContracts) setContracts(activeContracts)
+      // 4. Fetch Contracts (FIXED QUERY)
+      // We explicitly say: "Get the user who is referenced by freelancer_id"
+      // @ts-ignore
+      const { data: contractsData } = await supabase
+        .from('contracts')
+        .select(`
+          *,
+          job:jobs(title),
+          freelancer:users!freelancer_id(full_name)
+        `)
+        .eq('client_id', user.id)
+        .eq('status', 'active')
+      
+      if (contractsData) setContracts(contractsData)
 
       setLoading(false)
     }
     init()
   }, [router])
 
-  // Open Payment Modal
-  const openPayment = (contract: any) => {
-    setSelectedContract(contract)
-    setPayModalOpen(true)
-  }
-
-  // Handle Real Payment
-  const confirmPayment = async () => {
-    setProcessing(true)
+  const handleComplete = async (contract: any) => {
+    if(!confirm("Are you sure you want to release payment and finish the job?")) return;
     
-    // Simulate Bank Delay (Makes it feel real)
-    await new Promise(r => setTimeout(r, 1500))
+    const { error } = await supabase
+      .from('contracts')
+      .update({ status: 'completed' })
+      .eq('id', contract.id)
 
-    try {
-      // 1. Mark Complete
-      await supabase.from('contracts').update({ status: 'completed' }).eq('id', selectedContract.id)
-      
-      // 2. Create Transaction
-      await supabase.from('payments').insert({
-        contract_id: selectedContract.id,
-        payer_id: user.id,
-        payee_id: selectedContract.freelancer_id,
-        amount: selectedContract.budget,
-        status: 'released',
-        created_at: new Date().toISOString()
-      })
-
-      alert("✅ Payment Successful! Receipt sent to email.")
-      setContracts(prev => prev.filter(c => c.id !== selectedContract.id))
-      setPayModalOpen(false)
-
-    } catch (error: any) {
-      alert("Payment Failed: " + error.message)
-    } finally {
-      setProcessing(false)
+    if (error) {
+      alert("Error: " + error.message)
+    } else {
+      alert("Payment Released! Job Completed.")
+      setContracts(prev => prev.filter(c => c.id !== contract.id))
     }
   }
 
-  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login') }
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading Dashboard...</div>
 
@@ -87,39 +92,72 @@ export default function ClientDashboard() {
       <div className="max-w-7xl mx-auto">
         
         {/* HEADER */}
-        <div className="flex justify-between items-center mb-10">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
           <div>
-            <h1 className="text-3xl font-extrabold text-slate-900">Client Dashboard</h1>
-            <p className="text-slate-500">Manage your hiring pipeline.</p>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900">
+              Hello, <span className="text-purple-600">{user.user_metadata.full_name}</span>
+            </h1>
+            <p className="text-slate-500 mt-1">Manage your hiring pipeline.</p>
           </div>
-          <div className="flex gap-3">
-             <Link href="/client/post-job" className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 shadow-lg">+ Post Job</Link>
+          <div className="flex gap-4">
+            <Link href="/client/post-job" className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition shadow-lg flex items-center justify-center">
+              + Post New Job
+            </Link>
+            <button onClick={handleLogout} className="bg-white border border-slate-200 text-red-500 px-6 py-3 rounded-xl font-bold hover:bg-red-50 transition">
+              Log Out
+            </button>
           </div>
         </div>
 
-        {/* ACTIVE CONTRACTS */}
+        {/* STATS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Contracts</span>
+            <span className="text-4xl font-extrabold text-blue-600 mt-2">{contracts.length}</span>
+          </div>
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Open Jobs</span>
+            <span className="text-4xl font-extrabold text-purple-600 mt-2">{myJobs.filter(j => j.status === 'open').length}</span>
+          </div>
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Spent</span>
+            <span className="text-4xl font-extrabold text-emerald-600 mt-2">$0.00</span>
+          </div>
+        </div>
+
+        {/* --- ACTIVE CONTRACTS SECTION --- */}
         {contracts.length > 0 && (
           <div className="mb-12">
             <h2 className="text-xl font-bold text-slate-900 mb-6">Active Contracts</h2>
             <div className="grid gap-6">
               {contracts.map((contract) => (
-                <div key={contract.id} className="bg-white border border-slate-200 p-8 rounded-[2rem] shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
+                <div key={contract.id} className="bg-slate-900 text-white p-8 rounded-[2rem] shadow-xl flex flex-col md:flex-row justify-between items-center gap-6">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900 mb-1">{contract.job.title}</h3>
-                    <p className="text-slate-500 text-sm">Freelancer: <span className="font-bold text-blue-600">{contract.freelancer.full_name}</span></p>
-                    <div className="text-2xl font-extrabold mt-2">${contract.budget}</div>
-                    <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded font-bold">ESCROW SECURED</span>
+                    <h3 className="text-xl font-bold text-white mb-2">{contract.job?.title}</h3>
+                    <p className="text-slate-400 text-sm">Freelancer: <span className="text-white font-bold">{contract.freelancer?.full_name}</span></p>
+                    <div className="text-3xl font-extrabold mt-4 text-emerald-400">${contract.budget}</div>
+                    <p className="text-xs text-slate-500 mt-1">Escrow Secured</p>
                   </div>
                   
-                  <div className="flex gap-3">
-                    <Link href={`/client/job/${contract.job_id}`} className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200">Message</Link>
+                  <div className="flex flex-col gap-3 w-full md:w-auto">
+                    <Link 
+                      href={`/client/job/${contract.job_id}`}
+                      className="px-6 py-3 bg-white/10 text-white border border-white/20 rounded-xl font-bold hover:bg-white/20 transition text-center"
+                    >
+                      Message Freelancer
+                    </Link>
                     
                     {contract.work_submitted ? (
-                      <button onClick={() => openPayment(contract)} className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg animate-pulse">
-                        Review & Pay
+                      <button 
+                        onClick={() => handleComplete(contract)}
+                        className="px-6 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition shadow-lg animate-pulse"
+                      >
+                        Review & Pay 💰
                       </button>
                     ) : (
-                      <button disabled className="px-6 py-3 bg-slate-100 text-slate-400 rounded-xl font-bold border border-slate-200">Waiting for Work</button>
+                      <button disabled className="px-6 py-3 bg-slate-700 text-slate-500 rounded-xl font-bold cursor-not-allowed border border-slate-600">
+                        Waiting for Work...
+                      </button>
                     )}
                   </div>
                 </div>
@@ -127,54 +165,53 @@ export default function ClientDashboard() {
             </div>
           </div>
         )}
-        
-        {/* JOBS LIST (Same as before, abbreviated for space) */}
-        {/* ... (Keep your existing Job List code here) ... */}
-        
-      </div>
 
-      {/* --- PAYMENT MODAL --- */}
-      {payModalOpen && selectedContract && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 border border-slate-200 animate-fade-in-up">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">💸</div>
-              <h2 className="text-2xl font-bold text-slate-900">Confirm Payment</h2>
-              <p className="text-slate-500 text-sm mt-1">Release funds from Escrow to Freelancer</p>
+        {/* JOB LIST */}
+        <h2 className="text-xl font-bold text-slate-900 mb-6">Your Job Postings</h2>
+        <div className="space-y-4">
+          {myJobs.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
+              <p className="text-slate-400 mb-4">You haven't posted any jobs yet.</p>
+              <Link href="/client/post-job" className="text-blue-600 font-bold hover:underline">Create your first job</Link>
             </div>
+          ) : (
+            myJobs.map((job) => {
+               // Safe Access to Proposal Count
+               const proposalCount = job.proposals && job.proposals[0] ? job.proposals[0].count : 0;
+               
+               return (
+                <div key={job.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition flex flex-col md:flex-row justify-between items-center gap-6">
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className="font-bold text-lg text-slate-900">{job.title}</h3>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${job.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {job.status}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 text-sm">Posted on {new Date(job.created_at).toLocaleDateString()}</p>
+                  </div>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mb-6 space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Project</span>
-                <span className="font-bold text-slate-900 truncate max-w-[200px]">{selectedContract.job.title}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Recipient</span>
-                <span className="font-bold text-slate-900">{selectedContract.freelancer.full_name}</span>
-              </div>
-              <div className="border-t border-slate-200 my-2"></div>
-              <div className="flex justify-between text-lg font-extrabold text-slate-900">
-                <span>Total</span>
-                <span>${selectedContract.budget}.00</span>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button onClick={() => setPayModalOpen(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl">Cancel</button>
-              <button 
-                onClick={confirmPayment} 
-                disabled={processing}
-                className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 shadow-lg disabled:opacity-50 flex justify-center"
-              >
-                {processing ? (
-                   <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                ) : 'Confirm Release'}
-              </button>
-            </div>
-          </div>
+                  <div className="flex items-center gap-8">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-900">{proposalCount}</div>
+                      <div className="text-xs font-bold text-slate-400 uppercase">Applicants</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-900">${job.budget}</div>
+                      <div className="text-xs font-bold text-slate-400 uppercase">Budget</div>
+                    </div>
+                    <Link href={`/client/job/${job.id}`} className="bg-slate-100 text-slate-700 px-5 py-2 rounded-lg font-bold text-sm hover:bg-slate-200">
+                      Manage
+                    </Link>
+                  </div>
+                </div>
+               )
+            })
+          )}
         </div>
-      )}
 
+      </div>
     </div>
   )
 }
