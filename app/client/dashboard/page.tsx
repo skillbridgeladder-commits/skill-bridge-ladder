@@ -29,7 +29,7 @@ export default function ClientDashboard() {
       setUser(user)
 
       // Fetch Data
-      const { data: jobs } = await supabase.from('jobs').select('*, proposals(count)').eq('client_id', user.id).order('created_at', { ascending: false })
+      const { data: jobs } = await supabase.from('jobs').select('*').eq('client_id', user.id).order('created_at', { ascending: false })
       if (jobs) setMyJobs(jobs)
 
       const { data: activeContracts } = await supabase.from('contracts').select('*, freelancer:users(full_name), job:jobs(title)').eq('client_id', user.id).eq('status', 'active')
