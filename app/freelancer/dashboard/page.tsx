@@ -92,7 +92,7 @@ export default function FreelancerDashboard() {
     router.push('/login')
   }
 
-  // UPDATED: Submit Work Logic (Sets Flag & Sends Message)
+  // FUNCTION: Submit Work (Sends Link to Chat)
   const handleSubmitWork = async (contract: any) => {
     const workLink = prompt("Paste the link to your work (Google Drive, GitHub, Figma):");
     
