@@ -1,23 +1,26 @@
 export function checkMessageSafety(text: string): { safe: boolean; reason?: string } {
+  // If text is empty, it's safe (but won't send anyway)
+  if (!text) return { safe: true };
+
   const content = text.toLowerCase();
 
-  // 1. Phone Numbers (Detects 10-digit patterns)
-  const phoneRegex = /\b[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}\b/;
-  if (phoneRegex.test(content)) {
-    return { safe: false, reason: "Sharing phone numbers is strictly prohibited. Keep communication on SkillBridge." };
-  }
-
-  // 2. Email Addresses
+  // 1. Block Emails
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
   if (emailRegex.test(content)) {
-    return { safe: false, reason: "Sharing email addresses is blocked for your safety." };
+    return { safe: false, reason: "Sharing email addresses is blocked." };
   }
 
-  // 3. Forbidden Keywords (Leaking platform)
-  const badWords = ['whatsapp', 'telegram', 'signal', 'pay outside', 'bank transfer', 'upwork', 'fiverr', 'contact me at'];
+  // 2. Block Phone Numbers (approximate)
+  const phoneRegex = /\b\d{10}\b/;
+  if (phoneRegex.test(content)) {
+    return { safe: false, reason: "Sharing phone numbers is blocked." };
+  }
+
+  // 3. Block Keywords
+  const badWords = ['whatsapp', 'telegram', 'signal', 'pay outside', 'bank transfer'];
   for (const word of badWords) {
     if (content.includes(word)) {
-      return { safe: false, reason: `The term "${word}" is flagged. Please adhere to professional guidelines.` };
+      return { safe: false, reason: `The word "${word}" is flagged for security.` };
     }
   }
 

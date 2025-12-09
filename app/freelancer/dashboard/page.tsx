@@ -92,9 +92,9 @@ export default function FreelancerDashboard() {
     router.push('/login')
   }
 
-  // FUNCTION: Submit Work (Sends Link to Chat)
+  // UPDATED: Submit Work Logic (Sets Flag & Sends Message)
   const handleSubmitWork = async (contract: any) => {
-    const workLink = prompt("Please paste the link to your work (Google Drive, GitHub, Figma):");
+    const workLink = prompt("Paste the link to your work (Google Drive, GitHub, Figma):");
     
     if (!workLink) return; // User cancelled
 
@@ -104,7 +104,15 @@ export default function FreelancerDashboard() {
     }
 
     try {
-      // Find the proposal ID to link the message
+      // 1. UPDATE CONTRACT status to 'work_submitted'
+      const { error: updateError } = await supabase
+        .from('contracts')
+        .update({ work_submitted: true }) // Sets the flag!
+        .eq('id', contract.id)
+
+      if (updateError) throw updateError;
+
+      // 2. Find the proposal ID to link the message
       const { data: proposal } = await supabase
           .from('proposals')
           .select('id')
@@ -113,7 +121,7 @@ export default function FreelancerDashboard() {
           .single()
 
       if (proposal) {
-          // Send message
+          // 3. Send message
           const { error } = await supabase.from('messages').insert({
               proposal_id: proposal.id,
               sender_id: user.id,
@@ -122,7 +130,7 @@ export default function FreelancerDashboard() {
           })
 
           if (error) throw error
-          alert("Success! Link sent to client chat.")
+          alert("Success! Work submitted for review.")
       } else {
         alert("Could not find linked proposal to send message.")
       }
@@ -238,7 +246,7 @@ export default function FreelancerDashboard() {
           <div className="lg:col-span-2 space-y-6">
             <h2 className="text-xl font-bold text-slate-900">Recommended Jobs</h2>
             {jobs.length === 0 ? (
-              <div className="p-10 bg-white rounded-3xl border border-dashed border-slate-300 text-center text-slate-400">No jobs posted yet.</div>
+              <div className="p-10 bg-white rounded-3xl border border-dashed border-slate-300 text-center text-slate-400">No jobs found. Check back later!</div>
             ) : (
               jobs.map(job => (
                 <div key={job.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">

@@ -20,7 +20,7 @@ export default function ClientDashboard() {
         return
       }
 
-      // 2. Safety Check (Onboarding)
+      // 2. Safety Check
       const { data: profile } = await supabase
         .from('users')
         .select('onboarding_complete')
@@ -162,12 +162,20 @@ export default function ClientDashboard() {
                     >
                       Message Freelancer
                     </Link>
-                    <button 
-                      onClick={() => handleComplete(contract)}
-                      className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition shadow-lg shadow-green-900/20"
-                    >
-                      Approve & Pay
-                    </button>
+                    
+                    {/* CONDITIONAL BUTTON: Only active if work is submitted */}
+                    {contract.work_submitted ? (
+                      <button 
+                        onClick={() => handleComplete(contract)}
+                        className="px-6 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition shadow-lg animate-pulse"
+                      >
+                        Review & Pay 💰
+                      </button>
+                    ) : (
+                      <button disabled className="px-6 py-3 bg-slate-700 text-slate-500 rounded-xl font-bold cursor-not-allowed border border-slate-600">
+                        Waiting for Work...
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
