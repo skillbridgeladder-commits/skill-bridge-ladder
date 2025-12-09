@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
 import { checkMessageSafety } from '@/app/lib/moderation'
+import AlertModal from './AlertModal'
 
 interface ChatBoxProps {
   proposalId: number;
@@ -14,12 +15,28 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const messagesEndRef = useRef<null | HTMLDivElement>(null)
+  
+  // POPUP STATE
+  const [alert, setAlert] = useState({ open: false, title: '', message: '', type: 'error' as any })
 
-  // Lock chat if status is just 'applied'
   const isLocked = status === 'applied'
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  // SOUND & NOTIFICATION FUNCTION
+  const playNotification = (msg: string) => {
+    // 1. Play Sound
+    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3') // Free crisp notification sound
+    audio.play().catch(() => {}) // Catch error if user hasn't interacted yet
+
+    // 2. Browser Notification
+    if (Notification.permission === 'granted') {
+      new Notification('New Message', { body: msg, icon: '/logo.png' })
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission()
+    }
   }
 
   useEffect(() => {
@@ -28,17 +45,20 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
       return
     }
 
+    // Ask for permission immediately
+    if (typeof window !== 'undefined' && Notification.permission !== 'granted') {
+      Notification.requestPermission()
+    }
+
     let isMounted = true
 
-    // 1. Fetch History
+    // Fetch History
     const fetchMessages = async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('messages')
         .select('*')
         .eq('proposal_id', proposalId)
         .order('created_at', { ascending: true })
-      
-      if (error) console.error('Error fetching messages:', error)
       
       if (isMounted && data) {
         setMessages(data)
@@ -48,7 +68,7 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
     }
     fetchMessages()
 
-    // 2. Real-time Listener
+    // Real-time Listener
     const channel = supabase
       .channel(`room_${proposalId}`)
       .on('postgres_changes', { 
@@ -59,6 +79,12 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
       }, (payload) => {
         if (isMounted) {
           setMessages((prev) => [...prev, payload.new])
+          
+          // IF MESSAGE IS NOT FROM ME -> NOTIFY
+          if (payload.new.sender_id !== currentUserId) {
+            playNotification(payload.new.content.substring(0, 50) + '...')
+          }
+
           setTimeout(scrollToBottom, 100)
         }
       })
@@ -68,19 +94,24 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
       isMounted = false
       supabase.removeChannel(channel) 
     }
-  }, [proposalId, isLocked])
+  }, [proposalId, isLocked, currentUserId])
 
   const handleSend = async () => {
     if (!newMessage.trim()) return
 
-    // Security Check
+    // 1. SECURITY CHECK (Triggers Popup)
     const security = checkMessageSafety(newMessage)
     if (!security.safe) {
-      alert(`🛡️ Security Alert: ${security.reason}`)
+      setAlert({
+        open: true,
+        title: 'Security Alert 🛡️',
+        message: security.reason || 'This message violates our safety policies.',
+        type: 'error'
+      })
       return
     }
 
-    // Send to DB
+    // 2. SEND MESSAGE
     const { error } = await supabase.from('messages').insert({
       proposal_id: proposalId,
       sender_id: currentUserId,
@@ -88,23 +119,19 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
     })
 
     if (error) {
-      alert('Failed to send: ' + error.message)
+      setAlert({ open: true, title: 'Send Failed', message: error.message, type: 'error' })
     } else {
       setNewMessage('')
     }
   }
 
-  // Helper to make links clickable
+  // Link Helper
   const renderContent = (text: string) => {
     if (!text) return "";
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return text.split(urlRegex).map((part, index) => {
       if (part.match(urlRegex)) {
-        return (
-          <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="underline font-bold text-yellow-300 break-all hover:text-white">
-            {part}
-          </a>
-        );
+        return <a key={index} href={part} target="_blank" className="underline font-bold text-yellow-300 break-all hover:text-white">{part}</a>
       }
       return part;
     });
@@ -120,57 +147,70 @@ export default function ChatBox({ proposalId, currentUserId, status }: ChatBoxPr
   }
 
   return (
-    <div className="flex flex-col h-[600px] bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
-      
-      {/* HEADER */}
-      <div className="bg-white border-b border-slate-100 p-4 flex justify-between items-center shadow-sm z-10">
-        <div className="flex items-center gap-3">
-          <div className="relative w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="font-bold text-slate-800">Secure Workroom</span>
-        </div>
-      </div>
+    <>
+      {/* POPUP ALERT */}
+      <AlertModal 
+        isOpen={alert.open} 
+        title={alert.title} 
+        message={alert.message} 
+        type={alert.type}
+        onClose={() => setAlert({ ...alert, open: false })} 
+      />
 
-      {/* MESSAGES LIST */}
-      <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-4">
-        {loading && <div className="text-center text-xs text-slate-400">Loading history...</div>}
+      <div className="flex flex-col h-[600px] bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
         
-        {messages.map((msg) => {
-          const isMe = msg.sender_id === currentUserId;
-          // Check if it's a system message (Work Submission)
-          const isSystem = msg.content && msg.content.includes("✅ WORK SUBMITTED");
+        {/* HEADER */}
+        <div className="bg-white border-b border-slate-100 p-4 flex justify-between items-center shadow-sm z-10">
+          <div className="flex items-center gap-3">
+            <div className="relative w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="font-bold text-slate-800">Secure Workroom</span>
+          </div>
+          <div className="text-[10px] bg-slate-100 px-2 py-1 rounded text-slate-500">
+            Messages are private
+          </div>
+        </div>
+
+        {/* MESSAGES */}
+        <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-4">
+          {loading && <div className="text-center text-xs text-slate-400">Loading history...</div>}
           
-          return (
-            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] p-4 rounded-2xl text-sm shadow-sm leading-relaxed ${
-                isSystem ? 'bg-emerald-600 text-white border-emerald-500' :
-                isMe ? 'bg-blue-600 text-white rounded-br-none' : 
-                'bg-white text-slate-800 border border-slate-200 rounded-bl-none'
-              }`}>
-                {renderContent(msg.content)}
-                <div className={`text-[10px] mt-1 text-right opacity-70`}>
-                  {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+          {messages.map((msg) => {
+            const isMe = msg.sender_id === currentUserId;
+            const isSystem = msg.content && msg.content.includes("✅ WORK SUBMITTED");
+            
+            return (
+              <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] p-4 rounded-2xl text-sm shadow-sm leading-relaxed ${
+                  isSystem ? 'bg-emerald-600 text-white border-emerald-500' :
+                  isMe ? 'bg-blue-600 text-white rounded-br-none' : 
+                  'bg-white text-slate-800 border border-slate-200 rounded-bl-none'
+                }`}>
+                  {renderContent(msg.content)}
+                  <div className={`text-[10px] mt-1 text-right opacity-70`}>
+                    {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
-        <div ref={messagesEndRef} />
-      </div>
+            )
+          })}
+          <div ref={messagesEndRef} />
+        </div>
 
-      {/* INPUT AREA */}
-      <div className="p-4 bg-white border-t border-slate-100 flex gap-3">
-        <input
-          type="text"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Type a message..."
-          className="flex-1 bg-slate-50 border border-slate-200 text-slate-800 p-4 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-        />
-        <button onClick={handleSend} className="bg-slate-900 text-white px-6 rounded-xl font-bold hover:bg-blue-600 transition">
-          Send
-        </button>
+        {/* INPUT */}
+        <div className="p-4 bg-white border-t border-slate-100 flex gap-3">
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Type a message..."
+            className="flex-1 bg-slate-50 border border-slate-200 text-slate-800 p-4 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+          />
+          <button onClick={handleSend} className="bg-slate-900 text-white px-6 rounded-xl font-bold hover:bg-blue-600 transition">
+            Send
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
